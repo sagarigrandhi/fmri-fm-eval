@@ -38,3 +38,9 @@ docker run --rm \
     --nprocs 1 \
     --omp-nthreads 1 \
     2>&1 | tee -a ${logdir}/${dataset}_${subid}.txt
+
+aws s3 sync --dryrun \
+    ${outdir} \
+    s3://medarc/fmri-fm-eval/ADHD200/fmriprep/${dataset} \
+    --exclude '*' \
+    --include '*sub-'${subid}'*'
