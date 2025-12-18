@@ -35,11 +35,6 @@ class ModelTransform:
     def __call__(self, sample: dict[str, Tensor]) -> dict[str, Tensor]: ...
 
 
-def default_transform(sample: dict[str, Tensor]) -> dict[str, Tensor]:
-    """Default No-op transform."""
-    return sample
-
-
-ModelTransformPair = tuple[ModelTransform, ModelWrapper]
+ModelTransformPair = tuple[ModelTransform | None, ModelWrapper]
 
 ModelFn = Callable[..., ModelWrapper | ModelTransformPair]
