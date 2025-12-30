@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 
 def main():
-    path_list = np.loadtxt("metadata/PPMI_BIDS_complete.txt", dtype=str).tolist()
+    path_list = np.loadtxt("metadata/PPMI_BIDS_complete_paths.txt", dtype=str).tolist()
 
     src_dir = Path("bids")
     dst_dir = Path("bids_complete")

@@ -1,14 +1,14 @@
 #!/bin/bash
 
+set -euo pipefail
+
 if [[ -z $1 ]]; then
-    echo "preprocess.sh SESIDX"
+    echo "preprocess.sh SUBIDX"
     exit
 fi
 
-sesidx=$1
-sesid=$(sed -n ${sesidx}p "${PWD}/metadata/PPMI_BIDS_complete_sub_ses.txt")
-subid=$(echo $sesid | cut -d " " -f 1)
-sesid=$(echo $sesid | cut -d " " -f 2)
+subidx=$1
+subid=$(sed -n ${subidx}p "${PWD}/metadata/PPMI_BIDS_complete_subs.txt")
 
 datadir="${PWD}/bids_complete"
 outdir="${PWD}/fmriprep"
@@ -22,6 +22,10 @@ fsavgdir=$(readlink -f ../../resources/fsaverage)
 mkdir -p $outdir 2>/dev/null
 mkdir -p $logdir 2>/dev/null
 
+# using first-lex for sub anatomical reference so that we only run freesurfer once per
+# subject. for adni, we used 'sessionwise', but I'm not sure I want to spend the extra
+# compute time on this. first-lex is the default, so it should be good enough. typically
+# the sessions are not very far apart.
 docker run --rm \
     -v "${datadir}:/data:ro" \
     -v "/tmp/datasets/ppmi/bids/:/tmp/datasets/ppmi/bids/:ro" \
@@ -31,7 +35,6 @@ docker run --rm \
     nipreps/fmriprep:25.2.3 \
     /data /out participant \
     --participant-label $subid \
-    --session-label $sesid \
     --skip_bids_validation \
     --fs-license-file /opt/freesurfer/license.txt \
     --ignore fieldmaps slicetiming sbref t2w flair fmap-jacobian \
@@ -39,6 +42,13 @@ docker run --rm \
     --cifti-output 91k \
     --nprocs 1 \
     --omp-nthreads 1 \
-    --subject-anatomical-reference sessionwise \
+    --subject-anatomical-reference first-lex \
     --stop-on-first-crash \
-    2>&1 | tee -a ${logdir}/${subid}_${sesid}.txt
+    2>&1 | tee -a ${logdir}/${subid}.txt
+
+aws s3 sync \
+    ${outdir} \
+    s3://medarc/fmri-fm-eval/PPMI/fmriprep \
+    --exclude '*' \
+    --include '*sub-'${subid}'*' \
+    2>&1 | tee -a ${logdir}/${subid}.txt
