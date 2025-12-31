@@ -78,20 +78,52 @@ The script creates a log file at:
 datasets/PPMI/bids/dcm2bids_conversion.log
 ```
 
+## Index BIDS data
 
-## Generate Filtered Subject List
-Run the subject list notebook to generate a filtered list of valid subjects:
+Generate an index of all the BIDS dataset metadata to use for filtering the image data
 
 ```bash
-datasets/PPMI/notebooks/ppmi_bids_subject_list.ipynb
+uv run scripts/index_ppmi_bids.py
 ```
 
-* This notebook selects subjects based on the defined criteria (e.g., at least 1 T1w and 1 fMRI BOLD scan with >=200 TRs)
-* Output CSV: `datasets/PPMI/metadata/PPMI_T1+fMRI_gt200TR_valid_subjects.csv` 
-* This file will be used as input for the next curation step.
+* Output: [`metadata/PPMI_BIDS_index.csv`](metadata/PPMI_BIDS_index.csv)
+
+## Generate Filtered Subject List
+
+Run the BIDS filter notebook to generate a filtered list of valid subjects, sessions, runs:
+
+```bash
+datasets/PPMI/notebooks/ppmi_bids_filter.ipynb
+```
+
+* This notebook excludes invalid T1w and bold runs (e.g. short acquisition, invalid shape), excludes incomplete sessions, and excludes subjects without at least one complete session.
+* Outputs:
+    * [`metadata/PPMI_BIDS_complete.csv`](metadata/PPMI_BIDS_complete.csv)
+    * [`metadata/PPMI_BIDS_complete_paths.txt`](metadata/PPMI_BIDS_complete_paths.txt)
+    * [`metadata/PPMI_BIDS_complete_subs.txt`](metadata/PPMI_BIDS_complete_subs.txt)
+* These files will be used as input for the next curation step.
+
+## Generate filtered BIDS dataset
+
+Create a filtered BIDS dataset `bids_complete/` by symlinking all included runs from the full `bids/` directory.
+
+```bash
+uv run python scripts/link_ppmi_bids_complete.py
+```
+
+The complete filtered BIDS data are backed up to `s3://medarc/fmri-fm-eval/PPMI/bids_complete/`
+
+## Data preprocessing
+
+Run fMRIprep preprocessing using the [`scripts/preprocess.sh`](scripts/preprocess.sh) script.
+
+Preprocessing jobs were run in batches on [lightning.ai](https://lightning.ai). See [`notebooks/submit_batch.ipynb`](notebooks/submit_batch.ipynb) for example batch job submission.
 
 
 ## Curate Complete PPMI Dataset
+
+> **TODO**: Out of date. Update after fMRIprep preprocessing finishes.
+
 Run the curation script:
 
 ```bash
