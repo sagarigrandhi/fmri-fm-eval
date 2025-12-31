@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -euo pipefail
-
 if [[ -z $1 ]]; then
     echo "preprocess.sh SUBIDX"
     exit
@@ -12,18 +10,21 @@ source ${HOME}/.env.medarc.r2
 set +a
 
 subidx=$1
-subid=$(sed -n ${subidx}p "${PWD}/metadata/PPMI_BIDS_complete_subs.txt")
+subid=$(sed -n $((subidx + 1))p "${PWD}/metadata/PPMI_BIDS_complete_subs.txt")
 
 # download data for target subject
 datadir=/tmp/PPMI/bids_complete
-aws s3 sync \
-    s3://medarc/fmri-fm-eval/PPMI/bids_complete \
-    ${datadir} \
-    --exclude '*' \
-    --include '*sub-'${subid}'*'
+for retry in {1..3}; do
+    aws s3 sync \
+        s3://medarc/fmri-fm-eval/PPMI/bids_complete \
+        ${datadir} \
+        --exclude '*' \
+        --include 'dataset_description.json' \
+        --include '*sub-'${subid}'*'
+done
 
-outdir="/tmp/PPMI/fmriprep"
-logdir="/tmp/PPMI/logs"
+outdir="${PWD}/fmriprep"
+logdir="${PWD}/logs"
 
 logname="fmriprep_${subid}.txt"
 logpath="${logdir}/$logname"
@@ -59,10 +60,12 @@ docker run --rm \
     --stop-on-first-crash \
     2>&1 | tee -a $logpath
 
-aws s3 sync \
-    ${outdir} \
-    s3://medarc/fmri-fm-eval/PPMI/fmriprep \
-    --exclude '*' \
-    --include '*sub-'${subid}'*'
+for retry in {1..3}; do
+    aws s3 sync \
+        ${outdir} \
+        s3://medarc/fmri-fm-eval/PPMI/fmriprep \
+        --exclude '*' \
+        --include '*sub-'${subid}'*'
+done
 
 aws s3 cp $logpath "s3://medarc/fmri-fm-eval/PPMI/fmriprep/logs/${logname}"
