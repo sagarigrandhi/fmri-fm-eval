@@ -12,6 +12,7 @@ dependencies = [
     "cloudpathlib[s3]",
     "datasets",
     "einops",
+    "gdown",
     "huggingface_hub",
     "ipython",
     "jupyter",
@@ -41,17 +42,19 @@ dependencies = [
 [project.optional-dependencies]
 
 brain-jepa = [
-    "gdown",
     "brain-jepa",
 ]
 
 swift = [
-    "gdown",
     "swiftfmri",
 ]
 
 brainlm = [
     "brainlm",
+]
+
+brainharmonix = [
+    "brainharmonix",
 ]
 
 [tool.setuptools_scm]
@@ -63,6 +66,7 @@ yaspy = { git = "https://github.com/childmindresearch/yaspy.git" }
 brain-jepa = { git = "https://github.com/MedARC-AI/Brain-JEPA.git", rev = "c43f8a647b948000ec1a92c4ea6f5efb4efc27f1" }
 swiftfmri = { git = "https://github.com/MedARC-AI/SwiFT.git", rev = "934e27a892921756109feb577851615e4e8faeb6" }
 brainlm = { git = "https://github.com/MedARC-AI/BrainLM.git", rev = "e287e0fa0f2dda61b448614d92e9041cb38fa128" }
+brainharmonix = { git = "https://github.com/MedARC-AI/Brain-Harmony.git", rev = "5398f8f5540222973cf82d13ac1eb4c4b38af636" }
 
 [tool.ruff]
 line-length = 100
