@@ -1,7 +1,9 @@
 from typing import Protocol
 
+import nibabel as nib
 import numpy as np
 from templateflow import api as tflow
+from nilearn.image import resample_img
 
 from . import nisc
 
@@ -73,10 +75,13 @@ def flat_reader() -> Reader:
 
 def mni_cortex_reader() -> Reader:
     roi_path = nisc.fetch_schaefer(400, space="mni")
-    mask = nisc.read_nifti_data(roi_path) > 0
+    roi_img = nib.load(roi_path)
+    mask = np.ascontiguousarray(roi_img.get_fdata().T) > 0
 
     def fn(path: str):
-        series = nisc.read_nifti_data(path)
+        img = nib.load(path)
+        img = _ensure_mni152_2mm(img)
+        series = np.ascontiguousarray(img.get_fdata().T)
         series = series[:, mask]
         return series
 
@@ -87,14 +92,34 @@ def mni_reader() -> Reader:
     roi_path = tflow.get(
         "MNI152NLin6Asym", desc="brain", resolution=2, suffix="mask", extension="nii.gz"
     )
-    mask = nisc.read_nifti_data(roi_path) > 0
+    roi_img = nib.load(roi_path)
+    mask = np.ascontiguousarray(roi_img.get_fdata().T) > 0
 
     def fn(path: str):
-        series = nisc.read_nifti_data(path)
+        img = nib.load(path)
+        img = _ensure_mni152_2mm(img)
+        series = np.ascontiguousarray(img.get_fdata().T)
         series = series[:, mask]
         return series
 
     return fn
+
+
+MNI152_2MM_SHAPE = (91, 109, 91)
+MNI152_2MM_AFFINE = (
+    (-2.0, 0.0, 0.0, 90.0),
+    (0.0, 2.0, 0.0, -126.0),
+    (0.0, 0.0, 2.0, -72.0),
+    (0.0, 0.0, 0.0, 1.0),
+)
+
+
+def _ensure_mni152_2mm(img: nib.Nifti1Image, interpolation: str = "linear"):
+    if img.shape[:3] != MNI152_2MM_SHAPE:
+        img = resample_img(
+            img, MNI152_2MM_AFFINE, MNI152_2MM_SHAPE, interpolation=interpolation, copy_header=True
+        )
+    return img
 
 
 READER_DICT = {

@@ -1,5 +1,13 @@
 #!/bin/bash
 
+if [[ -z $1 || $1 == "-h" || $1 == "--help" ]]; then
+    echo "make_hcpya_arrow.sh DATASET"
+    exit
+fi
+
+DATASET=$1
+SPACEIDS="0 1 2 3 4 5"
+
 # all target spaces required by different models
 spaces=(
     schaefer400
@@ -7,6 +15,7 @@ spaces=(
     flat
     a424
     mni
+    mni_cortex
 )
 
 # nb, volume data not currently stored locally
@@ -17,14 +26,15 @@ roots=(
     data/sourcedata/HCP_1200
     s3://hcp-openaccess/HCP_1200
     s3://hcp-openaccess/HCP_1200
+    s3://hcp-openaccess/HCP_1200
 )
 
-log_path="logs/make_hcpya_rest1lr_dataset.log"
+log_path="logs/make_hcpya_${DATASET}_arrow.log"
 
-for ii in {0..4}; do
+for ii in $SPACEIDS; do
     space=${spaces[ii]}
     root=${roots[ii]}
-    uv run python scripts/make_hcpya_rest1lr_dataset.py \
+    uv run python scripts/make_hcpya_${DATASET}_arrow.py \
         --space "${space}" \
         --root "${root}" \
         2>&1 | tee -a "${log_path}"

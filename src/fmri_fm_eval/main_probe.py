@@ -106,8 +106,9 @@ def main(args: DictConfig):
         print("fitting transform on training dataset")
         transform.fit(train_dataset)
 
-    for split, ds in dataset_dict.items():
-        ds.set_transform(transform)
+    if transform is not None:
+        for split, ds in dataset_dict.items():
+            ds.compose(transform)
 
     # balanced class sampling for imbalanced classes
     if args.balanced_sampling:
