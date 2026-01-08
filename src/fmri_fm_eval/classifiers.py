@@ -60,7 +60,7 @@ class AttnPoolClassifier(nn.Module):
     def __init__(self, in_dim, out_dim, embed_dim=None):
         super().__init__()
         embed_dim = embed_dim or in_dim
-        assert embed_dim % 64 == 0
+        embed_dim = 64 * (embed_dim // 64)
         self.query_token = nn.Parameter(torch.empty(embed_dim))
         self.embed_dim = embed_dim
         self.num_heads = embed_dim // 64
