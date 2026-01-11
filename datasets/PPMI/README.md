@@ -1,9 +1,18 @@
 # PPMI 
 
-This folder contains all steps and scripts needed to convert the **PPMI** dataset
-from the original DICOM ZIP files into a **BIDS** structure using `dcm2bids`.
+This workflow processes the PPMI fMRI dataset from the original raw DICOM ZIP files through all the major steps:
 
-These instructions assume the PPMI zip files (`PPMI_01.zip.*`, `PPMI_02.zip.*`, …) are already available in a local directory such as:
+1. Extract raw DICOMs from ZIP files.  
+2. Convert DICOMs to BIDS structure using `dcm2bids`.  
+3. Preprocess fMRI data with `fMRIprep` in both CIFTI 91k and MNI 152 (NLin6Asym)spaces.  
+4. Curate a subset of complete data, selecting subjects with PD or prodromal diagnosis, and splitting into train/validation/test sets.  
+5. Generate Arrow datasets for downstream modeling and analysis.  
+
+
+The detailed instructions for each step are listed below. 
+
+This folder contains all scripts needed to convert the PPMI dataset
+from the original DICOM ZIP files into a BIDS structure using `dcm2bids`. These instructions assume the PPMI zip files (`PPMI_01.zip.*`, `PPMI_02.zip.*`, …) are already available in a local directory such as:
 
 ```
 datasets/PPMI/dicom/
@@ -122,33 +131,19 @@ Preprocessing jobs were run in batches on [lightning.ai](https://lightning.ai). 
 
 ## Curate Complete PPMI Dataset
 
-> **TODO**: Out of date. Update after fMRIprep preprocessing finishes.
+Construct a curated subset of PPMI fMRI data. The inclusion criteria are:
+* Subjects with diagnosis PD or Prodromal.
+* Runs with complete preprocessing outputs in CIFTI 91k and MNI 152 (NLin6Asym).
+* Split into train, validation, and test sets (70:15:15), stratifying by sex, age (three bins), and diagnosis.
+See [`notebooks/ppmi_curation.ipynb`](notebooks/ppmi_curation.ipynb) for the curation script.
 
-Run the curation script:
-
-```bash
-python datasets/PPMI/scripts/curate_ppmi.py
-```
-
-* Reads the filtered subject list and all clinical metadata.
-* Applies the hybrid filtering criteria:
-    * Strict filtering for PD/Prodromal patients (all required clinical columns present)
-    * Lenient filtering for Healthy Controls (impute missing clinical scores)
-* Output CSV: `datasets/PPMI/metadata/PPMI_Hybrid_Cases.csv`
+The output table of curated subjects is in `metadata/PPMI_curated.csv`.
 
 
-## Create 500-Subject Subset
-Run the 500-subject subset script:
+## Generate Arrow datasets
+
+Finally, generate output Arrow datasets for all target standard spaces
 
 ```bash
-python datasets/PPMI/scripts/subset_500.py
-```
-
-* Stratified selection maintaining diagnosis proportions: Healthy Control, Parkinson's Disease, and Prodromal.
-* Splits data into train/test/validation (70/15/15%)
-* Outputs:
-
-```bash
-datasets/PPMI/metadata/PPMI_500_Curated.csv (session-level)
-datasets/PPMI/metadata/PPMI_500_Split_Reference.csv (subject-level)
+uv run python scripts/make_ppmi_dataset.py --space mni
 ```
