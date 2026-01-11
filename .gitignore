@@ -24,6 +24,9 @@ _version.py
 # scratch
 .scratch
 
+# outputs
+output
+
 # freesurfer
 license.txt
 fsaverage
@@ -35,4 +38,3 @@ logs
 # HCP-YA
 hcpya_restricted.csv
 hcpya_unrestricted.csv
-hcpya_metadata.parquet

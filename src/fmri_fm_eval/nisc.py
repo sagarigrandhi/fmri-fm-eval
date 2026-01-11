@@ -6,10 +6,14 @@ Misc neuroimaging utils.
 - parcellation averaging
 - loading pycortex flat maps
 - surface to flat map projection
+- fsaverage to 32k fslr resampling using wb command
 - basic data preprocessing
 """
 
+import logging
 import math
+import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -20,10 +24,17 @@ import nibabel as nib
 import scipy.interpolate
 import scipy.signal
 from matplotlib.tri import Triangulation
+from matplotlib.colors import LinearSegmentedColormap
 from nibabel.cifti2 import BrainModelAxis, Cifti2Image
 from scipy.sparse import coo_array
 from scipy.spatial import Delaunay
 from sklearn.neighbors import NearestNeighbors
+
+# quiet nibabel warning
+# pixdim[1,2,3] should be non-zero; setting 0 dims to 1
+logging.getLogger("nibabel").setLevel(logging.ERROR)
+
+FSLR64K_NUM_VERTICES = 64984
 
 
 # NIFTI/CIFTI related utils
@@ -77,6 +88,20 @@ def get_brain_model_axis(cifti: Cifti2Image) -> BrainModelAxis:
         if isinstance(axis, BrainModelAxis):
             return axis
     raise ValueError("No brain model axis found in cifti")
+
+
+def read_gifti_surf_data(path: str | Path) -> np.ndarray:
+    path_lh = str(path).replace(".rh", ".lh")
+    path_rh = str(path).replace(".lh", ".rh")
+
+    img_lh = nib.load(path_lh)
+    series_lh = np.stack([da.data for da in img_lh.darrays])
+
+    img_rh = nib.load(path_rh)
+    series_rh = np.stack([da.data for da in img_rh.darrays])
+
+    series = np.concatenate([series_lh, series_rh], axis=1)
+    return series
 
 
 # Parcellation utils
@@ -138,11 +163,19 @@ def fetch_schaefer_tian(
     return path
 
 
-def fetch_a424():
+def fetch_a424(cifti: bool = False) -> Path:
     base_url = (
         "https://github.com/emergelab/hierarchical-brain-networks/raw/refs/heads/master/brainmaps"
     )
-    filename = "A424+2mm.nii.gz"
+    filename = "A424.dlabel.nii" if cifti else "A424+2mm.nii.gz"
+    path = download_file(base_url, filename, cache_dir=PARC_CACHE_DIR)
+    return path
+
+
+def fetch_schaefer400_tians3_buckner7():
+    """Fetch combined Schaefer400 + Tian S3 + Buckner7 parcellation (457 ROIs)."""
+    base_url = "https://huggingface.co/SamGijsen/Brain-Semantoks/resolve/main"
+    filename = "schaefer400_tian50_buckner7_MNI152_2mm.nii.gz"
     path = download_file(base_url, filename, cache_dir=PARC_CACHE_DIR)
     return path
 
@@ -222,8 +255,8 @@ class ParcelAverage:
         self.eps = eps
 
         self.mask = parc > 0
-        self.parc = parc[self.mask]
-        self.parc_one_hot = parc_to_one_hot(self.parc, sparse=sparse)
+        self.parc = parc
+        self.parc_one_hot = parc_to_one_hot(self.parc[self.mask], sparse=sparse)
 
     def transform(self, series: np.ndarray) -> np.ndarray:
         series = series[:, self.mask]
@@ -247,8 +280,15 @@ def parcel_average_schaefer_tian_fslr91k(num_rois: int, scale: int, **kwargs):
     return parcavg
 
 
-def parcel_average_a424(**kwargs):
-    path = fetch_a424()
+def parcel_average_a424(cifti: bool = False, **kwargs):
+    path = fetch_a424(cifti=cifti)
+    parc = read_cifti_data(path).squeeze(0) if cifti else read_nifti_data(path)
+    parcavg = ParcelAverage(parc, **kwargs)
+    return parcavg
+
+
+def parcel_average_schaefer400_tians3_buckner7(**kwargs):
+    path = fetch_schaefer400_tians3_buckner7()
     parc = read_nifti_data(path)
     parcavg = ParcelAverage(parc, **kwargs)
     return parcavg
@@ -295,6 +335,11 @@ def maybe_download_subject(subject: str):
     id_to_url = {
         "32k_fs_LR": "https://figshare.com/ndownloader/files/58130806",
     }
+
+    # filestore isn't created automatically
+    # https://github.com/gallantlab/pycortex/issues/447
+    Path(cortex.database.default_filestore).mkdir(exist_ok=True, parents=True)
+
     if subject not in cortex.db.subjects:
         cortex.download_subject(subject, url=id_to_url.get(subject))
 
@@ -677,6 +722,106 @@ def resample_timeseries(
     new_length = int(tr * len(series) / new_tr)
     new_x = new_tr * np.arange(new_length)
 
-    interp = scipy.interpolate.interp1d(x, series, kind=kind, axis=0)
+    if kind == "pchip":
+        interp = scipy.interpolate.PchipInterpolator(x, series, axis=0)
+    else:
+        interp = scipy.interpolate.interp1d(x, series, kind=kind, axis=0)
     series = interp(new_x)
     return series
+
+
+def fsaverage_to_32k_fs_LR(
+    data: np.ndarray,
+    hemi: Literal["lh", "rh"],
+    resample_fsaverage_dir: str | Path,
+) -> np.ndarray:
+    """Resample surface metric data from fsaverage to 32k_fs_LR using wb_command.
+
+    Args:
+        data: surface metric data, shape (n_vertices,) or (n_samples, n_vertices)
+        hemi: lh or rh
+        resample_fsaverage_dir: path to hcp template surfaces for resampling.
+
+    Returns:
+        Resampled data array, shape (n_vertices,) or (n_samples, n_vertices)
+
+    Reference:
+        https://wiki.humanconnectome.org/docs/assets/Resampling-FreeSurfer-HCP_5_8.pdf
+        https://github.com/Washington-University/HCPpipelines/tree/master/global/templates/standard_mesh_atlases/resample_fsaverage
+    """
+    assert data.ndim in (1, 2), f"Invalid data shape {data.shape}."
+
+    is_1d = data.ndim == 1
+    if is_1d:
+        data = data[None, :]
+
+    resample_fsaverage_dir = Path(resample_fsaverage_dir)
+    hcp_hemi = {"lh": "L", "rh": "R"}[hemi]
+
+    # Template paths needed for resampling.
+    fsaverage_sphere = str(
+        resample_fsaverage_dir / f"fsaverage_std_sphere.{hcp_hemi}.164k_fsavg_{hcp_hemi}.surf.gii"
+    )
+    fslr_sphere = str(
+        resample_fsaverage_dir / f"fs_LR-deformed_to-fsaverage.{hcp_hemi}.sphere.32k_fs_LR.surf.gii"
+    )
+    fsaverage_area = str(
+        resample_fsaverage_dir
+        / f"fsaverage.{hcp_hemi}.midthickness_va_avg.164k_fsavg_{hcp_hemi}.shape.gii"
+    )
+    fslr_area = str(
+        resample_fsaverage_dir / f"fs_LR.{hcp_hemi}.midthickness_va_avg.32k_fs_LR.shape.gii"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="wb_command-") as tmpdir:
+        input_path = str(Path(tmpdir) / f"input.fsaverage.{hemi}.func.gii")
+        output_path = str(Path(tmpdir) / f"output.32k_fs_LR.{hemi}.func.gii")
+
+        # Save data as gifti metric.
+        img = nib.gifti.GiftiImage(darrays=[nib.gifti.GiftiDataArray(row) for row in data])
+        nib.save(img, input_path)
+
+        # Run `wb_command -metric-resample``.
+        cmd = [
+            "wb_command",
+            "-metric-resample",
+            input_path,
+            fsaverage_sphere,
+            fslr_sphere,
+            "ADAP_BARY_AREA",
+            output_path,
+            "-area-metrics",
+            fsaverage_area,
+            fslr_area,
+        ]
+        subprocess.run(cmd, check=True)
+
+        # Load gifti metric back as numpy array.
+        img = nib.load(output_path)
+        data = np.stack([darray.data for darray in img.darrays])
+        if is_1d:
+            data = np.squeeze(data, 0)
+
+    return data
+
+
+# Plotting
+
+# from rick betzel's figures, hah
+FC_COLORS = np.array(
+    [
+        [64, 80, 160],
+        [64, 96, 176],
+        [96, 192, 240],
+        [144, 208, 224],
+        [255, 255, 255],
+        [240, 240, 96],
+        [240, 208, 64],
+        [224, 112, 64],
+        [224, 64, 48],
+    ],
+    dtype=np.uint8,
+)
+
+FC_CMAP = LinearSegmentedColormap.from_list("fc", FC_COLORS / 255.0)
+FC_CMAP.set_bad("gray")

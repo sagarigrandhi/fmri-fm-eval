@@ -1,12 +1,9 @@
 #!/bin/bash
 
-# all target spaces required by different models
 spaces=(
-    schaefer400
-    schaefer400_tians3
     flat
-    a424
-    mni
+    schaefer400
+    mni_cortex
 )
 
 # nb, volume data not currently stored locally
@@ -14,18 +11,25 @@ spaces=(
 roots=(
     data/sourcedata/HCP_1200
     data/sourcedata/HCP_1200
-    data/sourcedata/HCP_1200
-    s3://hcp-openaccess/HCP_1200
     s3://hcp-openaccess/HCP_1200
 )
 
-log_path="logs/make_hcpya_rest1lr_dataset.log"
+outdir="s3://medarc/fmri-datasets/pretrain"
 
-for ii in {0..4}; do
+log_path="logs/make_hcpya_all_wds.log"
+
+spaceids="0 1 2"
+
+for ii in $spaceids; do
     space=${spaces[ii]}
     root=${roots[ii]}
-    uv run python scripts/make_hcpya_rest1lr_dataset.py \
+
+    parallel --jobs 16 \
+        uv run --no-sync \
+        python scripts/make_hcpya_all_wds.py \
         --space "${space}" \
         --root "${root}" \
+        --outdir "${outdir}" \
+        --shard-id {} ::: {0..1799} \
         2>&1 | tee -a "${log_path}"
 done
